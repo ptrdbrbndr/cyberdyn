@@ -1,0 +1,12 @@
+{
+  "name": "cyberdyn-site",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "node build-articles.mjs",
+    "test": "node --test build-articles.test.mjs"
+  },
+  "dependencies": {
+    "marked": "^12.0.0"
+  }
+}
