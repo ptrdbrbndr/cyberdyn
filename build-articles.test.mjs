@@ -1,15 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execSync } from 'node:child_process';
-import { writeFileSync, mkdirSync, rmSync, readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { writeFileSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const TMP_SRC = 'articles-src-test';
-const TMP_OUT = 'public/articles-test';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const TMP_SRC = join(__dirname, 'articles-src-test');
+const TMP_OUT = join(__dirname, 'public', 'articles-test');
 
 test('build-articles genereert article HTML en index vanuit markdown', () => {
   mkdirSync(TMP_SRC, { recursive: true });
-  mkdirSync('public', { recursive: true });
+  mkdirSync(join(__dirname, 'public'), { recursive: true });
 
   writeFileSync(join(TMP_SRC, '2026-05-01-test-artikel.md'), [
     '---',
