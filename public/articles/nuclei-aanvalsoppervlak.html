@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nuclei: aanvalsoppervlak in kaart brengen over 35 FQDNs — Cyberdyn Intel</title>
+<meta name="description" content="Nuclei scant op bekende kwetsbaarheden, misconfiguraties en blootgestelde endpoints. Hoe we het wekelijks inzetten op de volledige Ductus-portfolio en wat het oplevert.">
+<link rel="stylesheet" href="../assets/article.css">
+</head>
+<body>
+<nav class="site-nav">
+  <a class="nav-brand" href="/">CYBERDYN</a>
+  <div class="nav-links">
+    <a href="/#product">Product</a>
+    <a href="/articles/" class="active">Intel</a>
+  </div>
+</nav>
+<main class="article-main">
+  <a class="back-link" href="/articles/">← Intel</a>
+  <article>
+    <div class="article-tag">RECON</div>
+    <h1>Nuclei: aanvalsoppervlak in kaart brengen over 35 FQDNs</h1>
+    <div class="article-byline">2026-04-28 · 6 min leestijd</div>
+    <div class="article-body"><h2>Wat is een aanvalsoppervlak?</h2>
+<p>Elke FQDN die je in productie hebt is een potentieel aanvalspad. Een vergeten test-endpoint, een misconfigureerde CORS-header, een verouderde TLS-versie — dit zijn de dingen die Nuclei vindt.</p>
+<p>De Ductus-stack heeft 35 actieve FQDNs, verspreid over twee Beelinks en Vercel. Handmatig bijhouden is niet schaalbaar.</p>
+<h2>Hoe Nuclei werkt</h2>
+<p>Nuclei werkt met templates: YAML-bestanden die beschrijven wat er gescand moet worden. De community onderhoudt meer dan 7.000 templates. Je kiest welke je draait op basis van severity en categorie.</p>
+<pre><code class="language-bash">nuclei -l targets.txt \
+  -severity medium,high,critical \
+  -tags exposure,misconfig,cve \
+  -o /var/log/nuclei/$(date +%Y%m%d).txt
+</code></pre>
+<p>Elke template test één specifiek patroon. Dat maakt false positives zeldzaam en de output actionable.</p>
+<h2>Onze targets.txt</h2>
+<pre><code>portal.conductus.nl
+iductus.nl
+liefdevolleblik.nl
+coolify.cyberductus.nl
+supabase-conductus.cyberductus.nl
+[... 30 meer ...]
+</code></pre>
+<p>De lijst wordt beheerd in <code>/opt/security-audits/nuclei/targets.txt</code> op B1 en bijgewerkt wanneer een nieuw project live gaat.</p>
+<h2>Wat Nuclei vindt — en wat niet</h2>
+<p><strong>Vindt wel:</strong></p>
+<ul>
+<li>Exposed admin panels (<code>/admin</code>, <code>/_next/</code>, <code>/swagger-ui</code>)</li>
+<li>Verouderde TLS-versies (TLS 1.0/1.1)</li>
+<li>Misconfigureerde security-headers (ontbrekende CSP, X-Frame-Options)</li>
+<li>Bekende CVEs in web-software</li>
+</ul>
+<p><strong>Vindt niet:</strong></p>
+<ul>
+<li>Logische kwetsbaarheden in je eigen code</li>
+<li>Auth-bypass die authenticatie vereist om te testen</li>
+<li>Business logic fouten</li>
+</ul>
+<p>Voor die laag: Semgrep (SAST) en ZAP (authenticated scan) — gepland voor Q3 2026.</p>
+<h2>Resultaten: eerste maand</h2>
+<p>35 targets, wekelijkse run, eerste maand:</p>
+<ul>
+<li>0 critical findings</li>
+<li>3 medium findings: ontbrekende <code>X-Content-Type-Options</code> headers op twee Vercel-deployments en één Beelink-app</li>
+<li>12 informational: server-version disclosure in nginx headers</li>
+</ul>
+<p>De headers zijn gecorrigeerd. Server-version disclosure staat op de backlog voor de volgende Lynis-ronde.</p>
+<h2>Integratie met de Ductus-workflow</h2>
+<p>Nuclei draait elke vrijdag 02:00 UTC via cron op B1. Output naar <code>/var/log/nuclei/</code>. Een simpel script stelt een Slack-notificatie samen als er findings zijn met severity ≥ medium.</p>
+<p>Bij 0 findings: stille run. Bij findings: directe Slack-alert met target, template-id en severity.</p>
+</div>
+  </article>
+</main>
+</body>
+</html>

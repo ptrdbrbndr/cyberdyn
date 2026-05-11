@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lynis: van verse Ubuntu naar hardening score 80+ — Cyberdyn Intel</title>
+<meta name="description" content="Lynis auditeert 300+ controls op host-niveau. Wat de scores betekenen, welke bevindingen écht tellen, en hoe je systematisch verbetert zonder de server te destabiliseren.">
+<link rel="stylesheet" href="../assets/article.css">
+</head>
+<body>
+<nav class="site-nav">
+  <a class="nav-brand" href="/">CYBERDYN</a>
+  <div class="nav-links">
+    <a href="/#product">Product</a>
+    <a href="/articles/" class="active">Intel</a>
+  </div>
+</nav>
+<main class="article-main">
+  <a class="back-link" href="/articles/">← Intel</a>
+  <article>
+    <div class="article-tag">HOST</div>
+    <h1>Lynis: van verse Ubuntu naar hardening score 80+</h1>
+    <div class="article-byline">2026-04-15 · 8 min leestijd</div>
+    <div class="article-body"><h2>Waarom host-hardening?</h2>
+<p>Een applicatie die perfect beveiligd is draait op een server. Als die server slecht geconfigureerd is — world-readable SSH-keys, te permissieve sudo-rechten, verouderde kernel — maakt de applicatiebeveiliging weinig uit.</p>
+<p>Lynis auditeert de host zelf: het OS, de kernel, authenticatie, netwerk-configuratie, bestands-permissies.</p>
+<h2>De score begrijpen</h2>
+<p>Lynis geeft een &quot;hardening index&quot; van 0–100. Een verse Ubuntu-installatie scoort typisch 55–65. Onze Beelinks starten op 57 (B1) en 62 (B2).</p>
+<p>De score is een richtlijn, geen doel op zich. Een score van 80 met één kritieke misconfiguratie is slechter dan een score van 70 zonder kritieke issues.</p>
+<p>Wat Lynis rapporteert:</p>
+<pre><code>[+] System Tools
+------------------------------------
+  - Checking system tools                              [ DONE ]
+  - Checking for automation tools                      [ FOUND ]
+
+[!] SUGGESTION
+  * Consider hardening SSH configuration
+    - Details  : AllowTcpForwarding (set YES, but could be NO)
+    - Solution : Change AllowTcpForwarding to NO in /etc/ssh/sshd_config
+</code></pre>
+<h2>Prioritering van bevindingen</h2>
+<p>Lynis geeft drie niveaus: WARNING, SUGGESTION, en INFO.</p>
+<p><strong>WARNINGs</strong> zijn actionable en urgent. Voorbeelden:</p>
+<ul>
+<li><code>PKGS-7392</code> — verouderde packages met bekende CVEs</li>
+<li><code>AUTH-9328</code> — root login via SSH toegestaan</li>
+<li><code>FIRE-4512</code> — geen firewall actief</li>
+</ul>
+<p><strong>SUGGESTIONs</strong> zijn verbeteringen zonder direct risico. Wij pakken deze aan in batches van 5–10 per sprint.</p>
+<p><strong>INFO</strong> is documentatie. Negeer dit grotendeels.</p>
+<h2>Fixes die het meeste opleveren</h2>
+<p>Na de eerste Lynis-run op de Beelinks, deze fixes gaven de grootste score-sprong:</p>
+<p><strong>1. SSH-hardening</strong> (+4 punten)</p>
+<pre><code class="language-bash"># /etc/ssh/sshd_config
+AllowTcpForwarding no
+X11Forwarding no
+MaxAuthTries 3
+LoginGraceTime 30
+</code></pre>
+<p><strong>2. Kernel-parameters</strong> (+3 punten)</p>
+<pre><code class="language-bash"># /etc/sysctl.d/99-hardening.conf
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.tcp_syncookies = 1
+kernel.dmesg_restrict = 1
+</code></pre>
+<p><strong>3. Fail2ban installeren</strong> (+2 punten)</p>
+<pre><code class="language-bash">apt install fail2ban
+systemctl enable --now fail2ban
+</code></pre>
+<h2>Automatisering</h2>
+<p>Lynis draait elke woensdag 02:00 UTC via cron. Output naar <code>/var/log/lynis/</code>. Bij WARNING-niveau alerts: Slack-notificatie.</p>
+<pre><code class="language-bash">lynis audit system --quiet \
+  --log-file /var/log/lynis/$(hostname)-$(date +%Y%m%d).log \
+  --report-file /var/log/lynis/$(hostname)-$(date +%Y%m%d).dat
+</code></pre>
+<p>De score-ontwikkeling wordt bijgehouden in een simpel CSV: datum, hostname, score. Zo zien we drift — een score die daalt zonder wijzigingen is een signaal.</p>
+<h2>Wat Lynis niet dekt</h2>
+<p>Lynis kijkt niet naar:</p>
+<ul>
+<li>Applicatie-kwetsbaarheden (Nuclei, SAST)</li>
+<li>Container-runtime (Falco — Q3 2026)</li>
+<li>Secrets in code (Gitleaks)</li>
+<li>Network-niveau (Nuclei)</li>
+</ul>
+<p>Het is één laag in een gelaagde aanpak.</p>
+</div>
+  </article>
+</main>
+</body>
+</html>

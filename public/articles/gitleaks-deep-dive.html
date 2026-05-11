@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gitleaks: secrets scannen voordat ze de repo in gaan — Cyberdyn Intel</title>
+<meta name="description" content="Hoe pre-commit hooks en Gitea Actions samenwerken om API-keys en tokens te onderscheppen — vóórdat ze in git-history belanden en onverwijderbaar zijn.">
+<link rel="stylesheet" href="../assets/article.css">
+</head>
+<body>
+<nav class="site-nav">
+  <a class="nav-brand" href="/">CYBERDYN</a>
+  <div class="nav-links">
+    <a href="/#product">Product</a>
+    <a href="/articles/" class="active">Intel</a>
+  </div>
+</nav>
+<main class="article-main">
+  <a class="back-link" href="/articles/">← Intel</a>
+  <article>
+    <div class="article-tag">RECON</div>
+    <h1>Gitleaks: secrets scannen voordat ze de repo in gaan</h1>
+    <div class="article-byline">2026-05-11 · 7 min leestijd</div>
+    <div class="article-body"><h2>Het probleem met git-history</h2>
+<p>Een API-key die per ongeluk in een commit belandt is niet zomaar verwijderd. <code>git rm</code> verwijdert het bestand, maar de key staat nog steeds in de commit-history. Iedereen met leestoegang tot de repo — nu of in de toekomst — kan hem uitlezen.</p>
+<p>Gitleaks onderschept dit vóór de commit plaatsvindt.</p>
+<h2>Hoe Gitleaks werkt</h2>
+<p>Gitleaks scant op patronen: reguliere expressies voor bekende token-formaten (Anthropic, Cloudflare, Stripe, JWT, AWS, GitHub) én custom regels die je zelf definieert voor je eigen stack.</p>
+<pre><code class="language-bash">$ gitleaks protect --staged --redact
+► Finding:     rule=anthropic-api-key
+  File:        .env
+  Line:        12
+  Secret:      sk-ant-***REDACTED***
+</code></pre>
+<p>De pre-commit hook stopt de commit direct. De ontwikkelaar ziet de exacte locatie en kan corrigeren vóór push.</p>
+<h2>Twee verdedigingslagen</h2>
+<p><strong>Laag 1 — Pre-commit hook (lokaal)</strong></p>
+<p>Draait op de machine van de ontwikkelaar. Stopt de commit als er secrets gevonden worden. Vereist dat Gitleaks lokaal geïnstalleerd is.</p>
+<pre><code class="language-bash">#!/bin/sh
+gitleaks protect --staged --redact --exit-code 1
+</code></pre>
+<p>Geplaatst in <code>.git/hooks/pre-commit</code> en <code>chmod +x</code>.</p>
+<p><strong>Laag 2 — Gitea Actions (CI)</strong></p>
+<p>Vangt gevallen op waarbij de hook ontbrak of omzeild werd. Draait op elke push.</p>
+<pre><code class="language-yaml">- name: Gitleaks scan
+  run: |
+    gitleaks detect \
+      --source . \
+      --config .gitleaks.toml \
+      --redact \
+      --exit-code 1
+</code></pre>
+<h2>Custom regels voor de Ductus-stack</h2>
+<p>De standaard Gitleaks-regels dekken bekende third-party tokens. Wij voegen regels toe voor onze eigen patronen:</p>
+<pre><code class="language-toml">[[rules]]
+id = &quot;cloudflare-tunnel-token&quot;
+description = &quot;Cloudflare Tunnel token&quot;
+regex = &#39;&#39;&#39;cfut_[A-Za-z0-9\-_]{40,}&#39;&#39;&#39;
+tags = [&quot;cloudflare&quot;, &quot;tunnel&quot;]
+
+[[rules]]
+id = &quot;anthropic-api-key&quot;
+description = &quot;Anthropic API key&quot;
+regex = &#39;&#39;&#39;sk-ant-[A-Za-z0-9\-_]{40,}&#39;&#39;&#39;
+tags = [&quot;anthropic&quot;, &quot;ai&quot;]
+</code></pre>
+<h2>Resultaten op de Ductus-stack</h2>
+<p>Na de pilot op coductus.nl: 0 findings in de bestaande history. De pre-commit hook blokkeerde in de eerste week 2 commits waarbij <code>.env</code>-bestanden per ongeluk gestaged waren.</p>
+<p>De wekelijkse Gitleaks-cron op B1 scant alle 85 repositories in de portfolio. Findings gaan naar <code>/var/log/gitleaks/</code> en triggeren een Slack-notificatie.</p>
+<h2>Wanneer Gitleaks niet helpt</h2>
+<p>Gitleaks scant tekst. Het mist:</p>
+<ul>
+<li>Secrets die base64-geëncrypt zijn</li>
+<li>Credentials die via environment-variabelen komen maar nooit in code staan</li>
+<li>Secrets in binary bestanden</li>
+</ul>
+<p>Voor die gevallen: Trivy (dependency-scan) en periodieke secret-rotatie als compenserende maatregelen.</p>
+</div>
+  </article>
+</main>
+</body>
+</html>
