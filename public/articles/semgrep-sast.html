@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Semgrep: jouw eigen code bugs vinden met pattern-matching op de AST — Cyberdyn Intel</title>
+<meta name="description" content="Hoe Semgrep met YAML-regels op de AST onveilige patronen in je eigen code vindt — daar waar Trivy stopt bij bekende CVEs in dependencies.">
+<link rel="stylesheet" href="../assets/article.css">
+</head>
+<body>
+<nav class="site-nav">
+  <a class="nav-brand" href="/">CYBERDYN</a>
+  <div class="nav-links">
+    <a href="/#product">Product</a>
+    <a href="/articles/" class="active">Intel</a>
+  </div>
+</nav>
+<main class="article-main">
+  <a class="back-link" href="/articles/">← Intel</a>
+  <article>
+    <div class="article-tag">CODE</div>
+    <h1>Semgrep: jouw eigen code bugs vinden met pattern-matching op de AST</h1>
+    <div class="article-byline">2026-04-07 · 8 min leestijd</div>
+    <div class="article-body"><h2>SAST is niet hetzelfde als dependency-scanning</h2>
+<p>Trivy is uitstekend in één ding: kwetsbare versies van bestaande pakketten vinden. Hij vergelijkt <code>package-lock.json</code> met de NVD-database en zegt &quot;axios 1.6.7 heeft CVE-2024-39338&quot;. Maar Trivy weet niets over de code die je zelf schrijft.</p>
+<p>Static Application Security Testing — SAST — vult dat gat. Een SAST-tool leest jouw broncode, niet je dependencies, en zoekt naar onveilige patronen die niemand ooit als CVE zal publiceren omdat ze uniek zijn voor jouw applicatie: een <code>dangerouslySetInnerHTML</code> met user-input, een Supabase-query met string-interpolatie, een API-route zonder auth-check.</p>
+<p>Semgrep is in dat veld de open-source-keuze. Eén binary, regels in YAML, snel genoeg om in pre-commit te draaien.</p>
+<h2>Hoe Semgrep werkt onder de motorkap</h2>
+<p>Klassieke regex-scanners zoeken op tekst. Dat is een ramp voor code, omdat <code>eval(&quot;...&quot; + userInput)</code> en <code>eval(\n  &quot;...&quot; + userInput\n)</code> syntactisch identiek zijn maar tekstueel verschillen. Semgrep parseert je code eerst naar een AST (Abstract Syntax Tree) en matcht patronen op die boom.</p>
+<p>Een Semgrep-regel ziet er zo uit:</p>
+<pre><code class="language-yaml">rules:
+  - id: react-dangerously-set-inner-html
+    pattern: |
+      &lt;$EL dangerouslySetInnerHTML={{ __html: $X }} /&gt;
+    pattern-not: |
+      &lt;$EL dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(...) }} /&gt;
+    message: |
+      dangerouslySetInnerHTML zonder DOMPurify.sanitize() — XSS-risico.
+      Gebruik DOMPurify of vermijd HTML-injectie volledig.
+    languages: [tsx, jsx]
+    severity: ERROR
+</code></pre>
+<p><code>$EL</code> en <code>$X</code> zijn metavariables — ze matchen elk JSX-element en elke expressie. <code>pattern-not</code> sluit de veilige variant met <code>DOMPurify.sanitize</code> uit. Geen false positive op de plek waar je het al goed doet.</p>
+<p>De equivalent voor SQL-injection in een Supabase-flow:</p>
+<pre><code class="language-yaml">rules:
+  - id: supabase-sql-string-interpolation
+    pattern-either:
+      - pattern: supabase.rpc(`...${$X}...`)
+      - pattern: supabase.from($T).select(`...${$X}...`)
+    message: |
+      String-interpolatie in Supabase-call. Gebruik parameter-binding
+      via .eq(), .filter() of een rpc-functie met named params.
+    languages: [typescript]
+    severity: ERROR
+</code></pre>
+<p>Dit vangt het patroon ongeacht witruimte, variabelennamen of import-aliassen — iets wat geen regex op een redelijke termijn lukt.</p>
+<h2>De Semgrep Registry</h2>
+<p>Je hoeft niet alles zelf te schrijven. De <a href="https://semgrep.dev/r">Semgrep Registry</a> bevat ruim 3000 community-onderhouden regels, verdeeld over:</p>
+<ul>
+<li><strong>security</strong> — OWASP Top 10, CWE-mappings, framework-specifieke kwetsbaarheden</li>
+<li><strong>correctness</strong> — bugs die geen security zijn maar wel kapot: vergeten <code>await</code>, unreachable code, type-mismatches</li>
+<li><strong>performance</strong> — onnodige re-renders in React, N+1-queries, sync I/O in async context</li>
+<li><strong>best-practice</strong> — stijl- en convention-checks</li>
+</ul>
+<p>Een typische Next.js/TypeScript-stack activeert pakketten zoals <code>p/typescript</code>, <code>p/react</code>, <code>p/nextjs</code>, <code>p/owasp-top-ten</code> en <code>p/javascript</code>. Samen circa 400 actieve regels — genoeg voor de eerste laag, geen overload.</p>
+<h2>Een scan op een echte Next.js-app</h2>
+<p>Het commando spreekt voor zich:</p>
+<pre><code class="language-bash">$ semgrep scan --config p/nextjs --config p/owasp-top-ten src/
+
+┌──────────────────────────────────────────────────────────────────┐
+│ Scanning 247 files                                               │
+└──────────────────────────────────────────────────────────────────┘
+
+src/app/api/users/[id]/route.ts
+❯❯❯ javascript.express.security.audit.express-cookie-session-no-secure
+    ERROR  Session cookie missing &#39;secure: true&#39; flag
+    42┆ res.cookie(&#39;session&#39;, token, { httpOnly: true })
+
+src/components/ArticleBody.tsx
+❯❯❯ typescript.react.security.audit.react-dangerouslysetinnerhtml
+    ERROR  Untrusted input in dangerouslySetInnerHTML
+    18┆ &lt;div dangerouslySetInnerHTML={{ __html: article.body }} /&gt;
+
+src/lib/search.ts
+❯❯❯ typescript.supabase.security.sql-injection-rpc
+    ERROR  String-interpolation in supabase.rpc()
+    27┆ const { data } = await supabase.rpc(`search_${type}`, { q })
+
+┌────────────────┐
+│ Scan Summary   │
+├────────────────┤
+│ Findings:    3 │
+│ Rules:     412 │
+│ Time:    4.1s  │
+└────────────────┘
+</code></pre>
+<p>Drie findings, vier seconden, geen build-stap nodig. Elk findings-blok bevat: bestand, regelnummer, rule-id (waarmee je naar de regel-definitie kunt), severity en de exacte regel die het probleem veroorzaakt.</p>
+<h2>Integratie in Gitea Actions</h2>
+<p>Patroon voor de Ductus-stack: scan op elke push naar een feature-branch, blokkeer merge naar <code>staging</code> of <code>main</code> bij ERROR (≈ CRITICAL/HIGH).</p>
+<pre><code class="language-yaml">- name: Semgrep SAST
+  uses: returntocorp/semgrep-action@v1
+  with:
+    config: &gt;-
+      p/nextjs
+      p/react
+      p/typescript
+      p/owasp-top-ten
+      .semgrep/custom.yml
+    severity: ERROR
+    error: true
+    sarif: semgrep-results.sarif
+
+- name: Upload SARIF to Gitea Security
+  if: always()
+  uses: actions/upload-artifact@v4
+  with:
+    name: semgrep-sarif
+    path: semgrep-results.sarif
+</code></pre>
+<p><code>.semgrep/custom.yml</code> bevat de Ductus-specifieke regels: een check op <code>createClient</code> zonder <code>flowType: &#39;pkce&#39;</code>, een check op API-routes zonder auth-guard, een check op <code>console.log</code> met user-data. Die staan los van de community-pakketten zodat updates van de registry de eigen regels niet overschrijven.</p>
+<h2>Wat Semgrep niet vindt</h2>
+<p>Semgrep is een statische analyzer. Hij ziet de vorm van je code, niet wat er runtime gebeurt:</p>
+<ul>
+<li><strong>Authenticatie-logica</strong> — of de check correct is bij de juiste resource (broken access control, OWASP A01) ziet hij niet</li>
+<li><strong>Business-logic-fouten</strong> — een race condition tussen twee API-calls, of een bedrag dat negatief kan worden, vereist begrip van de bedoeling</li>
+<li><strong>Runtime-injecties</strong> — een rule die op <code>eval</code> matcht zegt niets over wat er werkelijk door <code>eval</code> heen gaat in productie</li>
+<li><strong>State-machines</strong> — workflows met tijdsafhankelijk gedrag (Conductus&#39; Flowable-cases) zijn buiten scope</li>
+</ul>
+<p>Voor die categorieën: handmatige code-review, threat-modeling, en runtime-tooling zoals Falco of OWASP ZAP. Semgrep is de eerste laag — goedkoop, snel, en hij vangt 60-70% van de patronen die in production-incidenten terechtkomen.</p>
+<h2>Geplande uitrol op de Ductus-stack</h2>
+<p>Volgens het security-tooling-stappenplan: Semgrep gaat live in <strong>week 23</strong> van 2026 (eerste week juni). Eerst op de vier high-priority Beelink-projecten — Conductus, Iductus, Liefdevolle Blik, Omniductus — met <code>p/nextjs + p/owasp-top-ten + .semgrep/custom.yml</code>. Findings van de eerste run gaan naar <code>docs/audits/2026-W23-semgrep-baseline.md</code> per project. Daarna wekelijkse delta-scan via Gitea Actions, en pas zodra de baseline 0 ERROR-findings is, wordt de merge-blokkering geactiveerd. Dezelfde fasering die Trivy doorlopen heeft: rapporteren, opschonen, dán afdwingen.</p>
+</div>
+  </article>
+</main>
+</body>
+</html>
